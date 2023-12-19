@@ -4,4 +4,13 @@
 
 bravobeat:
   # Defines how often an event is sent to the output
-  period: 1s
+  period: 30s
+
+  # Address of the Bravo Server or the DC Monitor Server
+  address: 127.0.0.1:9003
+
+  # List of metrics to collect from
+  metrics:
+    - "CPU"
+    - "memory"
+    - "interface"

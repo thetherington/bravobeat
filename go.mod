@@ -1,6 +1,6 @@
 module github.com/thetherington/bravobeat
 
-go 1.21.5
+go 1.21
 
 replace (
 	github.com/Azure/azure-sdk-for-go => github.com/elastic/azure-sdk-for-go v59.0.0-elastic-1+incompatible

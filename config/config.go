@@ -6,9 +6,13 @@ package config
 import "time"
 
 type Config struct {
-	Period time.Duration `config:"period"`
+	Period  time.Duration `config:"period"`
+	Address string        `config:"address"`
+	Metrics []string      `config:"metrics"`
 }
 
 var DefaultConfig = Config{
-	Period: 1 * time.Second,
+	Period:  30 * time.Second,
+	Address: "10.9.0.15:9003",
+	Metrics: []string{"CPU", "memory", "interfaces"},
 }
