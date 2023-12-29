@@ -3,18 +3,21 @@
 ############################# {Beat} ######################################
 
 bravobeat:
-  # Defines how often an event is sent to the output
-  period: 30s
 
-  # Address of the Bravo Server or the DC Monitor Server
-  address: 10.9.0.15:9003
-  # address: 10.9.0.57:9003
-
-  # List of metrics to collect from
-  metrics:
-    - "CPU"
-    - "memory"
-    - "interface"
+  # List of Bravo Nodes to collect from
+  nodes:
+      # Define node with period, address and metrics
+    - address: localhost:9003
+      period: 30s
+      metrics: 
+        - "CPU"
+        - "memory"
+        
+    - address: localhost:9006
+      period: 30s
+      metrics: 
+        - "CPU"
+        - "memory"
 # ================================== General ===================================
 
 # The name of the shipper that publishes the network data. It can be used to group

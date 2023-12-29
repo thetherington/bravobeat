@@ -13,10 +13,10 @@ import (
 
 // bravobeat configuration.
 type bravobeat struct {
-	done      chan struct{}
-	rpcClient jsonrpc.RPCClient
-	config    config.Config
-	client    beat.Client
+	done       chan struct{}
+	rpcClients []jsonrpc.RPCClient
+	config     config.Config
+	client     beat.Client
 }
 
 // New creates an instance of bravobeat.
@@ -26,16 +26,23 @@ func New(b *beat.Beat, cfg *common.Config) (beat.Beater, error) {
 		return nil, fmt.Errorf("error reading config file: %v", err)
 	}
 
-	client, err := jsonrpc.NewClient(c.Address)
-	if err != nil {
-		return nil, fmt.Errorf("error creating jsonrpc client: %v", err)
+	clients := make([]jsonrpc.RPCClient, 0)
+
+	for _, node := range c.Nodes {
+		client, err := jsonrpc.NewClient(node.Address)
+		if err != nil {
+			return nil, fmt.Errorf("error creating jsonrpc client: %v", err)
+		}
+
+		clients = append(clients, client)
 	}
 
 	bt := &bravobeat{
-		done:      make(chan struct{}),
-		rpcClient: client,
-		config:    c,
+		done:       make(chan struct{}),
+		rpcClients: clients,
+		config:     c,
 	}
+
 	return bt, nil
 }
 
@@ -49,11 +56,19 @@ func (bt *bravobeat) Run(b *beat.Beat) error {
 		return err
 	}
 
-	byteChan := bt.rpcClient.ScanConnectionAsync()
+	eventsChans := make([]<-chan []beat.Event, 0)
 
-	rpcRespChan := pipeline(byteChan, bt.rpcClient.UnMarshalResponse)
-	paramsChan := pipeline(rpcRespChan, CastParams)
-	eventsChan := pipeline(paramsChan, EventBuilder)
+	for _, client := range bt.rpcClients {
+		byteChan := client.ScanConnectionAsync()
+
+		rpcRespChan := pipeline(byteChan, client.UnMarshalResponse)
+		paramsChan := pipeline(rpcRespChan, CastParams)
+		eventsChan := pipeline(paramsChan, EventBuilder)
+
+		eventsChans = append(eventsChans, eventsChan)
+	}
+
+	events := merge(eventsChans...)
 
 	// params := Metrics{
 	// 	Metrics: []string{
@@ -63,15 +78,18 @@ func (bt *bravobeat) Run(b *beat.Beat) error {
 	// 	Interval: 15,
 	// }
 
-	params := Match{
-		Interval: int(bt.config.Period.Seconds()),
+	for i, node := range bt.config.Nodes {
+		params := Match{
+			Interval: int(node.Period.Seconds()),
+		}
+
+		params.Match = ".*CPU.*"
+		bt.rpcClients[i].RequestAsync("subscribe", params)
+
+		params.Match = ".*memory.*"
+		bt.rpcClients[i].RequestAsync("subscribe", params)
+
 	}
-
-	params.Match = ".*CPU.*"
-	bt.rpcClient.RequestAsync("subscribe", params)
-
-	params.Match = ".*memory.*"
-	bt.rpcClient.RequestAsync("subscribe", params)
 
 	// ticker := time.NewTicker(bt.config.Period)
 	// counter := 1
@@ -105,7 +123,7 @@ func (bt *bravobeat) Run(b *beat.Beat) error {
 		// 	}
 
 		// }
-		case events := <-eventsChan:
+		case events := <-events:
 			bt.client.PublishAll(events)
 			logp.Info("events")
 		}
@@ -125,8 +143,10 @@ func (bt *bravobeat) Run(b *beat.Beat) error {
 
 // Stop stops bravobeat.
 func (bt *bravobeat) Stop() {
-	bt.rpcClient.RequestAsync("unsubscribe")
-	bt.rpcClient.CloseConnection()
+	for _, client := range bt.rpcClients {
+		client.RequestAsync("unsubscribe")
+		client.CloseConnection()
+	}
 
 	bt.client.Close()
 	close(bt.done)

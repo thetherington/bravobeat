@@ -3,16 +3,26 @@
 
 package config
 
-import "time"
+import (
+	"time"
+)
 
-type Config struct {
+type Node struct {
 	Period  time.Duration `config:"period"`
 	Address string        `config:"address"`
 	Metrics []string      `config:"metrics"`
 }
 
+type Config struct {
+	Nodes []Node `config:"nodes"`
+}
+
 var DefaultConfig = Config{
-	Period:  30 * time.Second,
-	Address: "10.9.0.15:9003",
-	Metrics: []string{"CPU", "memory", "interfaces"},
+	Nodes: []Node{
+		{
+			30 * time.Second,
+			"127.0.0.1:9003",
+			[]string{"CPU", "memory"},
+		},
+	},
 }
