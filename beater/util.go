@@ -25,15 +25,9 @@ func pipeline[I any, O any](input <-chan I, process func(I) O) <-chan O {
 }
 
 func merge[I any](cs ...<-chan I) <-chan I {
-	chans := len(cs)
-
-	wait := make(chan struct{}, chans)
-
 	out := make(chan I)
 
 	send := func(c <-chan I) {
-		defer func() { wait <- struct{}{} }()
-
 		for n := range c {
 			out <- n
 		}
@@ -42,15 +36,6 @@ func merge[I any](cs ...<-chan I) <-chan I {
 	for _, c := range cs {
 		go send(c)
 	}
-
-	go func() {
-		for range wait {
-			chans--
-			if chans == 0 {
-				break
-			}
-		}
-	}()
 
 	return out
 }

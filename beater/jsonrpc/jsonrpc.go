@@ -1,13 +1,12 @@
 package jsonrpc
 
 import (
-	"bufio"
 	"encoding/json"
 	"fmt"
-	"net"
-	"net/textproto"
 	"reflect"
 	"strconv"
+	"sync"
+	"time"
 )
 
 const (
@@ -19,8 +18,10 @@ type RPCClient interface {
 	CloseConnection()
 	RequestAsync(method string, params ...interface{}) error
 	Dispatch(request *RPCRequest) error
-	ScanConnectionAsync() <-chan []byte
 	UnMarshalResponse(byteData []byte) *RPCResponse
+	GetRxChan() <-chan []byte
+	GetNotifyChan() chan *Notify
+	ReSubscribe()
 }
 
 type RPCRequest struct {
@@ -73,29 +74,74 @@ func (e *RPCError) Error() string {
 
 type rpcClient struct {
 	address          string
-	conn             net.Conn
 	defaultRequestID int
 	close            bool
+	txChan           chan<- string
+	rxChan           <-chan []byte
+	notifyChan       chan *Notify
+	terminateChan    chan struct{}
+	subs             []*RPCRequest
+	wg               sync.WaitGroup
 }
 
-func NewClient(address string) (RPCClient, error) {
-	conn, err := net.Dial("tcp", address)
-	if err != nil {
-		return nil, err
-	}
+type AsyncConnectOptions struct {
+	Timeout time.Duration
+	Retry   time.Duration
+}
 
+// Create a asynchrounous connection that reads and writes through channels
+func WithAsyncConnection(options ...AsyncConnectOptions) func(*rpcClient) {
+	return func(rpc *rpcClient) {
+		tChan := make(chan struct{})
+
+		o := &AsyncConnectOptions{
+			Timeout: 5 * time.Second,
+			Retry:   10 * time.Second,
+		}
+
+		if len(options) > 0 {
+			o.Timeout = options[0].Timeout
+			o.Retry = options[0].Retry
+		}
+
+		tx, rx, notify := AsyncConnect(rpc.address, tChan, &rpc.wg, o)
+
+		rpc.txChan = tx
+		rpc.rxChan = rx
+		rpc.notifyChan = notify
+		rpc.terminateChan = tChan
+	}
+}
+
+func WithSubscriptions(reqs ...*RPCRequest) func(*rpcClient) {
+	return func(rpc *rpcClient) {
+		rpc.subs = make([]*RPCRequest, 0)
+
+		if len(reqs) > 0 {
+			rpc.subs = append(rpc.subs, reqs...)
+		}
+	}
+}
+
+func NewClient(address string, options ...func(*rpcClient)) RPCClient {
 	rpcClient := &rpcClient{
 		address: address,
-		conn:    conn,
-		close:   false,
 	}
 
-	return rpcClient, nil
+	for _, o := range options {
+		o(rpcClient)
+	}
+
+	return rpcClient
 }
 
 func (c *rpcClient) CloseConnection() {
-	c.conn.Close()
 	c.close = true
+	c.terminateChan <- struct{}{}
+
+	close(c.terminateChan)
+
+	c.wg.Wait()
 }
 
 func (client *rpcClient) RequestAsync(method string, params ...interface{}) error {
@@ -112,46 +158,12 @@ func (client *rpcClient) RequestAsync(method string, params ...interface{}) erro
 func (client *rpcClient) Dispatch(request *RPCRequest) error {
 	data, err := json.Marshal(request)
 	if err != nil {
-		return err
+		return fmt.Errorf("error marshalling request: %w", err)
 	}
 
-	_, err = fmt.Fprintf(client.conn, string(data)+delimeter)
-	if err != nil {
-		return err
-	}
+	client.txChan <- string(data)
 
 	return nil
-}
-
-func (client *rpcClient) ScanConnectionAsync() <-chan []byte {
-	out := make(chan []byte)
-	// errChan := make(chan error)
-
-	go func() {
-		reader := bufio.NewReader(client.conn)
-		tp := textproto.NewReader(reader)
-
-		for {
-			line, err := tp.ReadLineBytes()
-			if err != nil {
-				if client.close {
-					break
-				}
-
-				netOpError, ok := err.(*net.OpError)
-				if ok && netOpError.Err.Error() == "use of closed network connection" {
-					continue
-				}
-			}
-
-			fmt.Println(string(line))
-			out <- line
-		}
-
-		close(out)
-	}()
-
-	return out
 }
 
 func (client *rpcClient) UnMarshalResponse(byteData []byte) *RPCResponse {
@@ -163,6 +175,21 @@ func (client *rpcClient) UnMarshalResponse(byteData []byte) *RPCResponse {
 	}
 
 	return resp
+}
+
+func (client *rpcClient) GetRxChan() <-chan []byte {
+	return client.rxChan
+}
+
+func (client *rpcClient) GetNotifyChan() chan *Notify {
+	return client.notifyChan
+}
+
+func (client *rpcClient) ReSubscribe() {
+	for _, requests := range client.subs {
+		client.Dispatch(requests)
+		time.Sleep(time.Millisecond * time.Duration(500))
+	}
 }
 
 func Params(params ...interface{}) interface{} {
