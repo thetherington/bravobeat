@@ -89,30 +89,6 @@ type AsyncConnectOptions struct {
 	Retry   time.Duration
 }
 
-// Create a asynchrounous connection that reads and writes through channels
-func WithAsyncConnection(options ...AsyncConnectOptions) func(*rpcClient) {
-	return func(rpc *rpcClient) {
-		tChan := make(chan struct{})
-
-		o := &AsyncConnectOptions{
-			Timeout: 5 * time.Second,
-			Retry:   10 * time.Second,
-		}
-
-		if len(options) > 0 {
-			o.Timeout = options[0].Timeout
-			o.Retry = options[0].Retry
-		}
-
-		tx, rx, notify := AsyncConnect(rpc.address, tChan, &rpc.wg, o)
-
-		rpc.txChan = tx
-		rpc.rxChan = rx
-		rpc.notifyChan = notify
-		rpc.terminateChan = tChan
-	}
-}
-
 func WithSubscriptions(reqs ...*RPCRequest) func(*rpcClient) {
 	return func(rpc *rpcClient) {
 		rpc.subs = make([]*RPCRequest, 0)

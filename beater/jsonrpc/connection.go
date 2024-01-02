@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"net"
 	"net/textproto"
-	"sync"
 	"time"
 )
 
@@ -23,116 +22,146 @@ type Notify struct {
 	Type    int
 }
 
-// Asynchronous Connection that returns a sending channel and a receiving channel.  also a notification channel.
-// Accepts address string: IP:PORT and a termination channel
-func AsyncConnect(address string, terminateChan <-chan struct{}, wg *sync.WaitGroup, options *AsyncConnectOptions) (sendChan chan string, receiveChan chan []byte, notifyChan chan *Notify) {
-	wg.Add(1)
+// Create a asynchrounous connection that reads and writes through channels
+//
+// Asynchronous Connection has a reconnection system with timeouts from AsyncConnectionOptions
+// Default timeout 5 seconds and retry is 10 seconds
+func WithAsyncConnection(options ...AsyncConnectOptions) func(*rpcClient) {
+	var (
+		sendChan        chan string   = make(chan string, 10)
+		receiveChan     chan []byte   = make(chan []byte)
+		notifyChan      chan *Notify  = make(chan *Notify, 10)
+		terminationChan chan struct{} = make(chan struct{})
+		restartChan     chan struct{} = make(chan struct{})
 
-	sendChan, receiveChan, notifyChan = make(chan string, 10), make(chan []byte), make(chan *Notify, 10)
+		// default connection options
+		o *AsyncConnectOptions = &AsyncConnectOptions{
+			Timeout: 5 * time.Second,
+			Retry:   10 * time.Second,
+		}
+	)
 
-	cancelChan := make(chan struct{}, 2)
+	if len(options) > 0 {
+		if options[0].Timeout > 0 {
+			o.Timeout = options[0].Timeout
+		}
 
-	go func() {
-		// defer closing channels after function ends from a connection terminate channel.
-		defer func() {
+		if options[0].Retry > 0 {
+			o.Retry = options[0].Retry
+		}
+	}
+
+	return func(rpc *rpcClient) {
+		// cleanup function to close the tx,rx and notify channels
+		cleanup := func() {
 			close(sendChan)
 			close(receiveChan)
 
-			notifyChan <- CreateNotify(address, Info, "Shutting down connection routine!")
+			notifyChan <- CreateNotify(rpc.address, Info, "Shutting down connection routine!")
 			time.Sleep(time.Millisecond * time.Duration(500))
 
 			close(notifyChan)
 
-			wg.Done()
-		}()
+			rpc.wg.Done()
+		}
 
-		for {
-			d := net.Dialer{Timeout: options.Timeout}
+		rpc.wg.Add(1)
+		go func() {
+			// blocks beat from exiting until deferred cleanup function is completed
+			defer cleanup()
 
-			conn, err := d.Dial("tcp", address)
-			if err != nil { // connection failed
-				notifyChan <- CreateNotify(address, Error, fmt.Errorf("failed to connect to %s: %w", address, err))
-				notifyChan <- CreateNotify(address, Error, fmt.Errorf("trying to reset the connection for %s: %w", address, err))
+			for {
+				d := net.Dialer{Timeout: o.Timeout}
 
-				// Waiting 10 seconds before trying to reconnect.
-				// check for any terminations and exit out of connection routine if does
-				ticker := time.NewTicker(options.Retry)
-			TICKER:
-				for {
-					select {
-					case <-terminateChan:
-						return
+				conn, err := d.Dial("tcp", rpc.address)
+				if err != nil { // connection failed
 
-					case <-ticker.C:
-						break TICKER
-					}
-				}
+					notifyChan <- CreateNotify(rpc.address, Error, fmt.Errorf("failed to connect to %s: %w", rpc.address, err))
+					notifyChan <- CreateNotify(rpc.address, Error, fmt.Errorf("trying to reset the connection for %s: %w", rpc.address, err))
 
-			} else { // connection made successfully
-				notifyChan <- CreateNotify(address, Info, "Connected!")
-				notifyChan <- CreateNotify(address, Reconnect)
-
-				// create the reading routine and sending bytes into the receive channel
-				// using the textproto package to read anything ending /r/n
-				go func() {
-					reader := bufio.NewReader(conn)
-					tp := textproto.NewReader(reader)
-
+					// Waiting 10 seconds (default) before trying to reconnect.
+					// check for any terminations and exit out of connection routine if does
+					ticker := time.NewTicker(o.Retry)
+				TICKER:
 					for {
-						conn.SetReadDeadline(time.Now().Add(60 * time.Second))
+						select {
+						case <-terminationChan:
+							return
 
-						line, err := tp.ReadLineBytes()
-						if err != nil {
-							if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
-								notifyChan <- CreateNotify(address, Error, fmt.Errorf("read timeout for %s: %w", address, err))
-							} else {
-								notifyChan <- CreateNotify(address, Error, fmt.Errorf("read error for %s: %w", address, err))
+						case <-ticker.C:
+							break TICKER
+						}
+					}
+
+				} else { // connection made successfully
+					notifyChan <- CreateNotify(rpc.address, Info, "Connected!")
+					notifyChan <- CreateNotify(rpc.address, Reconnect)
+
+					// create the reading routine and sending bytes into the receive channel
+					// using the textproto package to read anything ending /r/n
+					go func() {
+						reader := bufio.NewReader(conn)
+						tp := textproto.NewReader(reader)
+
+						for {
+							conn.SetReadDeadline(time.Now().Add(60 * time.Second))
+
+							line, err := tp.ReadLineBytes()
+							if err != nil {
+								if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+									notifyChan <- CreateNotify(rpc.address, Error, fmt.Errorf("read timeout for %s: %w", rpc.address, err))
+								} else {
+									notifyChan <- CreateNotify(rpc.address, Error, fmt.Errorf("read error for %s: %w", rpc.address, err))
+								}
+
+								restartChan <- struct{}{}
+								break
 							}
 
-							cancelChan <- struct{}{}
-							break
+							receiveChan <- line
 						}
 
-						receiveChan <- line
-					}
+						notifyChan <- CreateNotify(rpc.address, Info, fmt.Sprintf("closing read routine for %s", rpc.address))
+					}()
 
-					notifyChan <- CreateNotify(address, Info, fmt.Sprintf("closing read routine for %s", address))
-				}()
+					// create the writing routing to listen on the write channel
+					// using textproto to write a line ending with /r/n
+					writer := bufio.NewWriter(conn)
+					wr := textproto.NewWriter(writer)
+				READ:
+					for {
+						select {
+						case data := <-sendChan: // received data into the sending channel
+							notifyChan <- CreateNotify(rpc.address, Debug, data)
 
-				// create the writing routing to listen on the write channel
-				// using textproto to write a line ending with /r/n
-				writer := bufio.NewWriter(conn)
-				wr := textproto.NewWriter(writer)
-			READ:
-				for {
-					select {
-					case data := <-sendChan: // received data into the sending channel
-						notifyChan <- CreateNotify(address, Debug, data)
+							if err := wr.PrintfLine("%s", data); err != nil {
+								notifyChan <- CreateNotify(rpc.address, Error, fmt.Errorf("error writing to connection for %s: %w", rpc.address, err))
+								break READ
+							}
 
-						if err := wr.PrintfLine("%s", data); err != nil {
-							notifyChan <- CreateNotify(address, Error, fmt.Errorf("error writing to connection for %s: %w", address, err))
+						case <-restartChan: // received a cancel from the read routine
 							break READ
+
+						case <-terminationChan: // termination signal received. close the connection go routine
+							notifyChan <- CreateNotify(rpc.address, Info, fmt.Sprintf("closing connection for %s", rpc.address))
+							conn.Close()
+							return
 						}
 
-					case <-cancelChan: // received a cancel from the read routine
-						break READ
-
-					case <-terminateChan: // termination signal received. close the connection go routine
-						notifyChan <- CreateNotify(address, Info, fmt.Sprintf("closing connection for %s", address))
-						conn.Close()
-						return
 					}
 
+					// received a cancel or break from the read routine will close the connection and reconnect
+					notifyChan <- CreateNotify(rpc.address, Info, fmt.Sprintf("closing connection for %s", rpc.address))
+					conn.Close()
 				}
-
-				// received a cancel or break from the read routine will close the connection and reconnect
-				notifyChan <- CreateNotify(address, Info, fmt.Sprintf("closing connection for %s", address))
-				conn.Close()
 			}
-		}
-	}()
+		}()
 
-	return
+		rpc.txChan = sendChan
+		rpc.rxChan = receiveChan
+		rpc.notifyChan = notifyChan
+		rpc.terminateChan = terminationChan
+	}
 }
 
 // create a notifcation message for the notify channel
