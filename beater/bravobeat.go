@@ -2,6 +2,7 @@ package beater
 
 import (
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -16,9 +17,14 @@ import (
 // bravobeat configuration.
 type bravobeat struct {
 	done       chan struct{}
-	rpcClients map[string]jsonrpc.RPCClient
+	bravoNodes map[string]*BravoNode
 	config     config.Config
 	client     beat.Client
+}
+
+type BravoNode struct {
+	address string
+	rpc     jsonrpc.RPCClient
 }
 
 // New creates an instance of bravobeat.
@@ -31,7 +37,7 @@ func New(b *beat.Beat, cfg *common.Config) (beat.Beater, error) {
 	bt := &bravobeat{
 		done:       make(chan struct{}),
 		config:     c,
-		rpcClients: make(map[string]jsonrpc.RPCClient),
+		bravoNodes: make(map[string]*BravoNode),
 	}
 
 	return bt, nil
@@ -59,7 +65,7 @@ func (bt *bravobeat) Run(b *beat.Beat) error {
 		for _, metric := range node.Metrics {
 			req := jsonrpc.NewRequest("subscribe", Match{
 				Interval: int(node.Period.Seconds()),
-				Match:    fmt.Sprintf(".*%s.*", metric),
+				Match:    fmt.Sprintf(`.*\.%s[\.-].*`, metric),
 			})
 
 			requests = append(requests, req)
@@ -70,19 +76,24 @@ func (bt *bravobeat) Run(b *beat.Beat) error {
 			Retry:   15 * time.Second,
 		}
 
-		// client instantiation with subs
-		client := jsonrpc.NewClient(node.Address, jsonrpc.WithAsyncConnection(options), jsonrpc.WithSubscriptions(requests...))
+		// rpc client instantiation with subs
+		rpc := jsonrpc.NewClient(node.Address, jsonrpc.WithAsyncConnection(options), jsonrpc.WithSubscriptions(requests...))
 
-		bt.rpcClients[node.Address] = client
+		client := &BravoNode{
+			address: node.Address,
+			rpc:     rpc,
+		}
+
+		bt.bravoNodes[node.Address] = client
 
 		// pipeline the receive channel from the async connection to.
 		// []byte -> RPCResponse -> RespParams -> []beat.Event
-		rpcRespChan := pipeline(client.GetRxChan(), client.UnMarshalResponse)
+		rpcRespChan := pipeline(rpc.GetRxChan(), rpc.UnMarshalResponse)
 		paramsChan := pipeline(rpcRespChan, CastParams)
-		eventsChan := pipeline(paramsChan, EventBuilder)
+		eventsChan := pipeline(paramsChan, client.EventBuilder)
 
 		eventsChans = append(eventsChans, eventsChan)
-		notifyChans = append(notifyChans, client.GetNotifyChan())
+		notifyChans = append(notifyChans, rpc.GetNotifyChan())
 	}
 
 	// merge events and notify chans together
@@ -98,8 +109,8 @@ func (bt *bravobeat) Run(b *beat.Beat) error {
 		case n := <-notifys:
 			switch n.Type {
 			case jsonrpc.Reconnect:
-				if c, ok := bt.rpcClients[n.Address]; ok {
-					c.ReSubscribe()
+				if n, ok := bt.bravoNodes[n.Address]; ok {
+					n.rpc.ReSubscribe()
 				}
 
 			case jsonrpc.Error:
@@ -123,18 +134,129 @@ func (bt *bravobeat) Run(b *beat.Beat) error {
 func (bt *bravobeat) Stop() {
 	var wg sync.WaitGroup
 
-	for _, client := range bt.rpcClients {
+	for _, node := range bt.bravoNodes {
 		wg.Add(1)
 
-		go func(c jsonrpc.RPCClient) {
+		go func(rpc jsonrpc.RPCClient) {
 			defer wg.Done()
-			c.RequestAsync("unsubscribe")
-			c.CloseConnection()
-		}(client)
+			rpc.RequestAsync("unsubscribe")
+			rpc.CloseConnection()
+		}(node.rpc)
 	}
 
 	wg.Wait()
 
 	bt.client.Close()
 	close(bt.done)
+}
+
+func (c *BravoNode) EventBuilder(params *RespParams) []beat.Event {
+	// group parameters {host: { plugin: [Metric...] },... },...
+	nodeGroups := make(map[string]map[string][]*Metric)
+
+	updateHostGroups := func(node string, plugin string, metric *Metric) {
+		// check if host key exists and if not create it
+		if _, ok := nodeGroups[node]; !ok {
+			nodeGroups[node] = make(map[string][]*Metric, 0)
+		}
+
+		// check if plugin key exists in host and if not create it
+		if _, ok := nodeGroups[node][plugin]; !ok {
+			nodeGroups[node][plugin] = make([]*Metric, 0)
+		}
+
+		nodeGroups[node][plugin] = append(nodeGroups[node][plugin], metric)
+	}
+
+	// grouping response into [Hosts][Plugins] = []Metric
+	// incase there are different plugin metrics in the response message with different hosts
+	for k, v := range params.Metrics {
+		switch {
+		case strings.Contains(k, CPU):
+			m := MakeMetric(k).withMatch(CPUMatch).withType("percent").withValue(v.Value)
+			if m.err == nil {
+				updateHostGroups(m.Node, CPU, m)
+			}
+
+		case strings.Contains(k, Load):
+			m := MakeMetric(k).withMatch(LoadMatch).withType("load").withValue(v.Value)
+			if m.err == nil {
+				updateHostGroups(m.Node, Load, m)
+			}
+
+		case strings.Contains(k, Memory):
+			if m := MakeMetric(k).withMatch(MemoryMatch).withValue(v.Value); m.err == nil {
+				updateHostGroups(m.Node, Memory, m)
+			}
+
+		case strings.Contains(k, Swap):
+			if m := MakeMetric(k).withMatch(SwapMatch).withValue(v.Value); m.err == nil {
+				updateHostGroups(m.Node, Swap, m)
+			}
+
+		case strings.Contains(k, Interface):
+			if m := MakeMetric(k).withMatch(InterfaceMatch).withValue(v.Value); m.err == nil {
+				updateHostGroups(m.Node, Interface, m)
+			}
+
+		case strings.Contains(k, DF):
+			if m := MakeMetric(k).withMatch(DFMatch).withValue(v.Value); m.err == nil {
+				updateHostGroups(m.Node, DF, m)
+			}
+
+		case strings.Contains(k, PTPStatus):
+			m := MakeMetric(k).withMatch(PTPStatusMatch).withType("status").withValue(v.Value)
+			if m.err == nil {
+				updateHostGroups(m.Node, PTPStatus, m)
+			}
+
+		case strings.Contains(k, EthStatus):
+			m := MakeMetric(k).withMatch(EthStatusMatch).withType("status").withValue(v.Value)
+			if m.err == nil {
+				updateHostGroups(m.Node, EthStatus, m)
+			}
+		}
+	}
+
+	fmt.Println("groups", fmt.Sprintf("%+v", nodeGroups))
+
+	// build events
+	events := make([]beat.Event, 0)
+
+	for _, plugins := range nodeGroups {
+		for plugin, metrics := range plugins {
+
+			switch plugin {
+			case CPU: // one event per CPU metrics
+				for _, m := range metrics {
+					events = append(events, CPUEvent(c.address, m))
+				}
+
+			case Memory, Swap, Load: // one event for all metrics (grouped)
+				events = append(events, GroupedEvent(c.address, metrics, plugin))
+
+			case Interface: // one event for each NIC (grouped)
+				for nic, metrics := range MakeInstanceGroups(metrics) {
+					events = append(events, InterfaceEvent(c.address, nic, metrics))
+				}
+
+			case DF: // one event for each mount (grouped)
+				for mount, metrics := range MakeInstanceGroups(metrics) {
+					events = append(events, GroupedEvent(c.address, metrics, plugin, InstanceMap{"mount", mount}))
+				}
+
+			case PTPStatus:
+				events = append(events, SingleEventStatus(c.address, metrics[0], plugin, PTP_STATUS_MAP))
+
+			case EthStatus:
+				for nic, metrics := range MakeInstanceGroups(metrics) {
+					events = append(events, SingleEventStatus(c.address, metrics[0], plugin, ETH_STATUS_MAP, InstanceMap{"port", nic}))
+				}
+
+			}
+
+		}
+	}
+
+	return events
 }

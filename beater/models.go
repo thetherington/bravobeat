@@ -6,11 +6,15 @@ type Metrics struct {
 }
 
 type Metric struct {
-	Host     string      `json:"host,omitempty"`
-	Plugin   string      `json:"plugin,omitempty"`
-	Instance string      `json:"instance,omitempty"`
-	Type     string      `json:"type,omitempty"`
-	Value    interface{} `json:"value,omitempty"`
+	Node           string      `json:"node,omitempty"`
+	Plugin         string      `json:"plugin,omitempty"`
+	PluginInstance string      `json:"plugin_instance,omitempty"`
+	Instance       string      `json:"instance,omitempty"`
+	MetricInstance string      `json:"metric_instance,omitempty"`
+	Type           string      `json:"type,omitempty"`
+	Value          interface{} `json:"value,omitempty"`
+	Key            string      `json:"key,omitempty"`
+	err            error
 }
 
 type Match struct {

@@ -11,13 +11,14 @@ bravobeat:
       period: 30s
       metrics: 
         - "CPU"
+        - "load"
         - "memory"
-        
-    - address: localhost:9006
-      period: 30s
-      metrics: 
-        - "CPU"
-        - "memory"
+        - "swap"
+        - "interface"
+        - "df"
+        - "ptp_status"
+        - "eth_status"
+
 # ================================== General ===================================
 
 # The name of the shipper that publishes the network data. It can be used to group
