@@ -223,34 +223,80 @@ func (c *BravoNode) EventBuilder(params *RespParams) []beat.Event {
 	// build events
 	events := make([]beat.Event, 0)
 
-	for _, plugins := range nodeGroups {
+	for node, plugins := range nodeGroups {
 		for plugin, metrics := range plugins {
 
 			switch plugin {
 			case CPU: // one event per CPU metrics
 				for _, m := range metrics {
-					events = append(events, CPUEvent(c.address, m))
+					events = append(events,
+						NewEventBuilder(plugin).
+							WithSingleEvent(m).
+							WithInstance(InstanceMap{"instance", m.Instance}).
+							WithNode(c.address, node).
+							Build(),
+					)
 				}
 
-			case Memory, Swap, Load: // one event for all metrics (grouped)
-				events = append(events, GroupedEvent(c.address, metrics, plugin))
+			case Memory, Swap: // one event for all metrics (grouped)
+				events = append(events,
+					NewEventBuilder(plugin).
+						WithGroupedEvents(metrics).
+						WithUsagePct().
+						WithNode(c.address, node).
+						Build(),
+				)
+
+			case Load:
+				events = append(events,
+					NewEventBuilder(plugin).
+						WithGroupedEvents(metrics).
+						WithNode(c.address, node).
+						Build(),
+				)
 
 			case Interface: // one event for each NIC (grouped)
 				for nic, metrics := range MakeInstanceGroups(metrics) {
-					events = append(events, InterfaceEvent(c.address, nic, metrics))
+					events = append(events,
+						NewEventBuilder(plugin).
+							WithSubGroupedEvents(metrics).
+							WithInstance(InstanceMap{"port", nic}).
+							WithNode(c.address, node).
+							Build(),
+					)
 				}
 
 			case DF: // one event for each mount (grouped)
 				for mount, metrics := range MakeInstanceGroups(metrics) {
-					events = append(events, GroupedEvent(c.address, metrics, plugin, InstanceMap{"mount", mount}))
+					events = append(events,
+						NewEventBuilder(plugin).
+							WithGroupedEvents(metrics).
+							WithInstance(InstanceMap{"mount", mount}).
+							WithUsagePct().
+							WithNode(c.address, node).
+							Build(),
+					)
 				}
 
 			case PTPStatus:
-				events = append(events, SingleEventStatus(c.address, metrics[0], plugin, PTP_STATUS_MAP))
+				events = append(events,
+					NewEventBuilder(plugin).
+						WithSingleEvent(metrics[0]).
+						WithEnumStatus("ptp_state", PTP_STATUS_MAP).
+						WithNode(c.address, node).
+						Build(),
+				)
 
 			case EthStatus:
 				for nic, metrics := range MakeInstanceGroups(metrics) {
-					events = append(events, SingleEventStatus(c.address, metrics[0], plugin, ETH_STATUS_MAP, InstanceMap{"port", nic}))
+					events = append(events,
+						NewEventBuilder(plugin).
+							WithSingleEvent(metrics[0]).
+							WithInstance(InstanceMap{"port", nic}).
+							WithEnumStatus("operational", ETH_STATUS_MAP).
+							WithNode(c.address, node).
+							Build(),
+					)
 				}
 
 			}

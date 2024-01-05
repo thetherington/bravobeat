@@ -3,6 +3,7 @@ package beater
 import (
 	"errors"
 	"regexp"
+	"strings"
 
 	"github.com/thetherington/bravobeat/beater/jsonrpc"
 )
@@ -87,7 +88,7 @@ func (m *Metric) withMatch(exp *regexp.Regexp) *Metric {
 		m.Instance = v
 	}
 	if v, ok := result["plugin_instance"]; ok {
-		m.PluginInstance = v
+		m.PluginInstance = strings.ReplaceAll(v, "-", "_")
 	}
 	if v, ok := result["metric_instance"]; ok {
 		m.MetricInstance = v

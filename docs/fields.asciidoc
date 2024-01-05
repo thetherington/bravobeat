@@ -92,13 +92,424 @@ type: keyword
 None
 
 
-*`counter`*::
+*`plugin`*::
 +
 --
-PLEASE UPDATE DOCUMENTATION
+Plugin Metricset
+
+
+type: keyword
+
+required: True
+
+--
+
+*`data_type`*::
++
+--
+Data Type
+
+
+type: keyword
+
+required: True
+
+--
+
+
+*`node.ip`*::
++
+--
+IP address of the node
+
+
+type: ip
+
+required: True
+
+--
+
+*`node.name`*::
++
+--
+Hostname of the node
+
+
+type: keyword
+
+required: True
+
+--
+
+
+*`CPU.instance`*::
++
+--
+CPU Instance
+
+
+type: keyword
+
+required: True
+
+--
+
+*`CPU.value`*::
++
+--
+CPU Usage Percentage
+
+
+type: float
+
+required: True
+
+--
+
+
+*`load.shortterm`*::
++
+--
+type: float
+
+required: True
+
+--
+
+*`load.midterm`*::
++
+--
+type: float
+
+required: True
+
+--
+
+*`load.longterm`*::
++
+--
+type: float
+
+required: True
+
+--
+
+
+*`memory.free`*::
++
+--
+Free Memory Bytes
 
 
 type: long
+
+required: True
+
+--
+
+*`memory.slab_recl`*::
++
+--
+type: long
+
+required: True
+
+--
+
+*`memory.slab_unrecl`*::
++
+--
+type: long
+
+required: True
+
+--
+
+*`memory.used`*::
++
+--
+Used Memory Bytes
+
+
+type: long
+
+required: True
+
+--
+
+*`memory.used_pct`*::
++
+--
+Used Memory Percentage
+
+
+type: float
+
+required: True
+
+--
+
+*`memory.buffered`*::
++
+--
+type: long
+
+required: True
+
+--
+
+*`memory.cached`*::
++
+--
+type: long
+
+required: True
+
+--
+
+
+*`swap.free`*::
++
+--
+Free Memory Bytes
+
+
+type: long
+
+required: True
+
+--
+
+*`swap.io_in`*::
++
+--
+type: long
+
+required: True
+
+--
+
+*`swap.io_out`*::
++
+--
+type: long
+
+required: True
+
+--
+
+*`swap.used`*::
++
+--
+Swap Used Bytes
+
+
+type: long
+
+required: True
+
+--
+
+*`swap.used_pct`*::
++
+--
+Used Swap Percentage
+
+
+type: float
+
+required: True
+
+--
+
+*`swap.cached`*::
++
+--
+type: long
+
+required: True
+
+--
+
+
+*`df.free`*::
++
+--
+Free Space in bytes
+
+
+type: long
+
+--
+
+*`df.reserved`*::
++
+--
+Reserved Space in bytes
+
+
+type: long
+
+--
+
+*`df.used`*::
++
+--
+Used Space in bytes
+
+
+type: long
+
+--
+
+*`df.used_pct`*::
++
+--
+Used Percentage
+
+
+type: float
+
+--
+
+*`df.mount`*::
++
+--
+Device mount information
+
+
+type: keyword
+
+--
+
+
+*`interface.port`*::
++
+--
+Ethernet Interface Name
+
+
+type: keyword
+
+required: True
+
+--
+
+
+*`interface.rx.if_octets`*::
++
+--
+type: long
+
+--
+
+*`interface.rx.if_errors`*::
++
+--
+type: long
+
+--
+
+*`interface.rx.if_dropped`*::
++
+--
+type: long
+
+--
+
+*`interface.rx.if_packets`*::
++
+--
+type: long
+
+--
+
+
+*`interface.tx.if_octets`*::
++
+--
+type: long
+
+--
+
+*`interface.tx.if_errors`*::
++
+--
+type: long
+
+--
+
+*`interface.tx.if_dropped`*::
++
+--
+type: long
+
+--
+
+*`interface.tx.if_packets`*::
++
+--
+type: long
+
+--
+
+
+*`ptp_status.description`*::
++
+--
+PTP Status Description
+
+
+type: keyword
+
+required: True
+
+--
+
+*`ptp_status.value`*::
++
+--
+PTP Status Number
+
+
+type: integer
+
+required: True
+
+--
+
+
+*`eth_status.port`*::
++
+--
+Eth Status Interface
+
+
+type: keyword
+
+required: True
+
+--
+
+*`eth_status.description`*::
++
+--
+Eth Status Description
+
+
+type: keyword
+
+required: True
+
+--
+
+*`eth_status.operational`*::
++
+--
+Eth Status Number
+
+
+type: integer
 
 required: True
 

@@ -2,8 +2,192 @@
   title: bravobeat
   description:
   fields:
-    - name: counter
-      type: long
+    - name: plugin
       required: true
+      type: keyword
       description: >
-        PLEASE UPDATE DOCUMENTATION
+        Plugin Metricset
+    - name: data_type
+      required: true
+      type: keyword
+      description: >
+        Data Type
+    - name: node
+      type: group
+      fields: 
+        - name: ip
+          type: ip
+          required: true
+          description: >
+            IP address of the node
+        - name: name
+          type: keyword
+          required: true
+          description: >
+            Hostname of the node
+    - name: CPU
+      type: group
+      fields:
+        - name: instance
+          required: true
+          type: keyword
+          description: >
+            CPU Instance
+        - name: value
+          required: true
+          type: float
+          description: >
+            CPU Usage Percentage
+    - name: load
+      type: group
+      fields:
+        - name: shortterm
+          required: true
+          type: float
+        - name: midterm
+          required: true
+          type: float
+        - name: longterm
+          required: true
+          type: float
+    - name: memory
+      type: group
+      fields:
+        - name: free
+          required: true
+          type: long
+          description: >
+            Free Memory Bytes
+        - name: slab_recl
+          required: true
+          type: long
+        - name: slab_unrecl
+          required: true
+          type: long
+        - name: used
+          required: true
+          type: long
+          description: >
+            Used Memory Bytes
+        - name: used_pct
+          required: true
+          type: float
+          description: >
+            Used Memory Percentage
+        - name: buffered
+          required: true
+          type: long
+        - name: cached
+          required: true
+          type: long
+    - name: swap
+      type: group
+      fields:
+        - name: free
+          required: true
+          type: long
+          description: >
+            Free Memory Bytes
+        - name: io_in
+          required: true
+          type: long
+        - name: io_out
+          required: true
+          type: long
+        - name: used
+          required: true
+          type: long
+          description: >
+            Swap Used Bytes
+        - name: used_pct
+          required: true
+          type: float
+          description: >
+            Used Swap Percentage
+        - name: cached
+          required: true
+          type: long
+    - name: df
+      type: group
+      fields:
+        - name: free
+          type: long
+          description: >
+            Free Space in bytes
+        - name: reserved
+          type: long
+          description: >
+            Reserved Space in bytes
+        - name: used
+          type: long
+          description: >
+            Used Space in bytes
+        - name: used_pct
+          type: float
+          description: >
+            Used Percentage
+        - name: mount
+          type: keyword
+          description: >
+            Device mount information
+    - name: interface
+      type: group
+      fields:
+        - name: port
+          type: keyword
+          required: true
+          description: >
+            Ethernet Interface Name
+        - name: rx
+          type: group
+          fields: 
+            - name: if_octets
+              type: long
+            - name: if_errors
+              type: long
+            - name: if_dropped
+              type: long
+            - name: if_packets
+              type: long
+        - name: tx
+          type: group
+          fields: 
+            - name: if_octets
+              type: long
+            - name: if_errors
+              type: long
+            - name: if_dropped
+              type: long
+            - name: if_packets
+              type: long
+    - name: ptp_status
+      type: group
+      fields:
+        - name: description
+          type: keyword
+          required: true
+          description: >
+            PTP Status Description
+        - name: value
+          type: integer
+          required: true
+          description: >
+            PTP Status Number
+    - name: eth_status
+      type: group
+      fields:
+        - name: port
+          type: keyword
+          required: true
+          description: >
+            Eth Status Interface
+        - name: description
+          type: keyword
+          required: true
+          description: >
+            Eth Status Description
+        - name: operational
+          type: integer
+          required: true
+          description: >
+            Eth Status Number
