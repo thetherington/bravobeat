@@ -9,6 +9,7 @@ import (
 )
 
 func main() {
+	// build.CrossBuild()
 	if err := cmd.RootCmd.Execute(); err != nil {
 		os.Exit(1)
 	}

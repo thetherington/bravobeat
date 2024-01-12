@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/elastic/beats/v7/libbeat/beat"
-	"github.com/elastic/beats/v7/libbeat/common"
+	"github.com/elastic/elastic-agent-libs/mapstr"
 )
 
 const (
@@ -43,7 +43,7 @@ type eventMod func(*EventBuilder)
 
 type EventBuilder struct {
 	plugin  string
-	fields  common.MapStr
+	fields  mapstr.M
 	metrics []*Metric
 	actions []eventMod
 }
@@ -51,7 +51,7 @@ type EventBuilder struct {
 func NewEventBuilder(plugin string) *EventBuilder {
 	return &EventBuilder{
 		plugin: plugin,
-		fields: common.MapStr{
+		fields: mapstr.M{
 			"plugin": plugin,
 		},
 	}
@@ -62,9 +62,9 @@ func (b *EventBuilder) WithSubGroupedEvents(metrics []*Metric) *EventBuilder {
 		eb.metrics = append(eb.metrics, metrics...)
 
 		for _, m := range metrics {
-			eb.fields.DeepUpdate(common.MapStr{
-				eb.plugin: common.MapStr{
-					m.MetricInstance: common.MapStr{
+			eb.fields.DeepUpdate(mapstr.M{
+				eb.plugin: mapstr.M{
+					m.MetricInstance: mapstr.M{
 						m.PluginInstance: m.Value,
 					},
 				},
@@ -81,8 +81,8 @@ func (b *EventBuilder) WithGroupedEvents(metrics []*Metric) *EventBuilder {
 		eb.metrics = append(eb.metrics, metrics...)
 
 		for _, m := range metrics {
-			eb.fields.DeepUpdate(common.MapStr{
-				eb.plugin: common.MapStr{
+			eb.fields.DeepUpdate(mapstr.M{
+				eb.plugin: mapstr.M{
 					m.PluginInstance: m.Value,
 				},
 			})
@@ -97,14 +97,14 @@ func (b *EventBuilder) WithSingleEvent(metric *Metric) *EventBuilder {
 		eb.metrics = append(eb.metrics, metric)
 
 		if metric.PluginInstance != "" {
-			eb.fields.DeepUpdate(common.MapStr{
-				eb.plugin: common.MapStr{
+			eb.fields.DeepUpdate(mapstr.M{
+				eb.plugin: mapstr.M{
 					metric.PluginInstance: metric.Value,
 				},
 			})
 		} else {
-			eb.fields.DeepUpdate(common.MapStr{
-				eb.plugin: common.MapStr{
+			eb.fields.DeepUpdate(mapstr.M{
+				eb.plugin: mapstr.M{
 					"value": metric.Value,
 				},
 			})
@@ -128,12 +128,12 @@ func (b *EventBuilder) WithNode(address string, node ...string) *EventBuilder {
 
 		p := strings.Split(address, ":")
 
-		node := common.MapStr{
+		node := mapstr.M{
 			"ip":   p[0],
 			"name": n,
 		}
 
-		eb.fields.Update(common.MapStr{
+		eb.fields.Update(mapstr.M{
 			"node": node,
 		})
 	})
@@ -148,8 +148,8 @@ type InstanceMap struct {
 
 func (b *EventBuilder) WithInstance(instanceMap InstanceMap) *EventBuilder {
 	b.actions = append(b.actions, func(eb *EventBuilder) {
-		eb.fields.DeepUpdate(common.MapStr{
-			eb.plugin: common.MapStr{
+		eb.fields.DeepUpdate(mapstr.M{
+			eb.plugin: mapstr.M{
 				instanceMap.key: instanceMap.value,
 			},
 		})
@@ -164,7 +164,7 @@ func (b *EventBuilder) WithUsagePct() *EventBuilder {
 			used     float64
 			free     float64
 			used_pct float64
-			flatmap  common.MapStr = eb.fields.Flatten()
+			flatmap  mapstr.M = eb.fields.Flatten()
 		)
 
 		if val, err := flatmap.GetValue(fmt.Sprintf("%s.used", eb.plugin)); err == nil {
@@ -179,8 +179,8 @@ func (b *EventBuilder) WithUsagePct() *EventBuilder {
 			used_pct = used / (free + used)
 		}
 
-		eb.fields.DeepUpdate(common.MapStr{
-			eb.plugin: common.MapStr{
+		eb.fields.DeepUpdate(mapstr.M{
+			eb.plugin: mapstr.M{
 				"used_pct": math.Floor(used_pct*100) / 100,
 			},
 		})
@@ -199,8 +199,8 @@ func (b *EventBuilder) WithEnumStatus(field string, statusMap StatusMap) *EventB
 			index := v.(int)
 
 			if s, ok := statusMap[index]; ok {
-				eb.fields.DeepUpdate(common.MapStr{
-					eb.plugin: common.MapStr{
+				eb.fields.DeepUpdate(mapstr.M{
+					eb.plugin: mapstr.M{
 						"description": s,
 					},
 				})
@@ -225,7 +225,7 @@ func (b *EventBuilder) Build() beat.Event {
 		keys, data_type = append(keys, m.Key), m.Type
 	}
 
-	b.fields.Update(common.MapStr{
+	b.fields.Update(mapstr.M{
 		"keys":      keys,
 		"data_type": data_type,
 	})

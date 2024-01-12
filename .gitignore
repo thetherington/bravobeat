@@ -5,3 +5,6 @@
 /bravobeat
 /bravobeat.test
 *.pyc
+
+.vscode
+logs

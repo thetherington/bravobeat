@@ -7,18 +7,19 @@ import (
 	"time"
 
 	"github.com/elastic/beats/v7/libbeat/beat"
-	"github.com/elastic/beats/v7/libbeat/common"
-	"github.com/elastic/beats/v7/libbeat/logp"
+
+	"github.com/elastic/elastic-agent-libs/config"
+	"github.com/elastic/elastic-agent-libs/logp"
 
 	"github.com/thetherington/bravobeat/beater/jsonrpc"
-	"github.com/thetherington/bravobeat/config"
+	bravoCfg "github.com/thetherington/bravobeat/config"
 )
 
 // bravobeat configuration.
 type bravobeat struct {
 	done       chan struct{}
 	bravoNodes map[string]*BravoNode
-	config     config.Config
+	config     bravoCfg.Config
 	client     beat.Client
 }
 
@@ -28,8 +29,8 @@ type BravoNode struct {
 }
 
 // New creates an instance of bravobeat.
-func New(b *beat.Beat, cfg *common.Config) (beat.Beater, error) {
-	c := config.DefaultConfig
+func New(b *beat.Beat, cfg *config.C) (beat.Beater, error) {
+	c := bravoCfg.DefaultConfig
 	if err := cfg.Unpack(&c); err != nil {
 		return nil, fmt.Errorf("error reading config file: %v", err)
 	}
